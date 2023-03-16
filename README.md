@@ -1,1 +1,1 @@
-# ouveai-app1
+# ouve-ai-app1
