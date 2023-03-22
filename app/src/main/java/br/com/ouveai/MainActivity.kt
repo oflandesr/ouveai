@@ -31,7 +31,7 @@ class MainActivity : AppCompatActivity() {
                 1
             )
         }
-        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.VOICE_CALL)
+        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
         mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
         mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
         mediaRecorder.setOutputFile("/dev/null")
