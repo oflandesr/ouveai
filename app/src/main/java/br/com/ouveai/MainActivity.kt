@@ -1,91 +1,119 @@
 package br.com.ouveai
 
-import android.Manifest
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
 import android.media.MediaRecorder
+import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
-import android.os.Looper
+import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import java.lang.Math.log10
-import kotlin.math.pow
+
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var mediaRecorder: MediaRecorder
-    private var haPermission = false;
-    private val referencia = 2e-5
+
+    private val requiredPermissions = arrayOf(android.Manifest.permission.RECORD_AUDIO)
+    private var hasPermission: Boolean = false
+
+    private var recorder: MediaRecorder? = null
+    private val dbValRef = 2e-5
+    private var isRecording = false
+
+    companion object {
+        const val REQUEST_RECORD_AUDIO_PERMISSION = 201
+    }
+
+    private val recordingFilePath: String by lazy {
+        "${externalCacheDir?.absolutePath}/recording.3gp"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        if (!this.haPermission) {
-            // Solicita permissão do usuário
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.RECORD_AUDIO),
-                    1
-                )
+        requestAudioPermission()
+        prepareRecButton()
+    }
+
+    private fun prepareRecButton() {
+        val button = findViewById<Button>(R.id.buttonRec)
+        button.setOnClickListener {
+            if (hasPermission) {
+                if (!isRecording) {
+                    isRecording = true
+                    button.text = "Parar"
+                    startRecording()
+                    Toast.makeText(this, "Recording started!", Toast.LENGTH_SHORT).show()
+                } else {
+                    isRecording = false
+                    button.text = "Iniciar"
+                    stopRecording()
+                    Toast.makeText(this, "Recording stop!", Toast.LENGTH_SHORT).show()
+                }
             } else {
-                this.haPermission = true
+                requestAudioPermission()
             }
         }
+    }
 
+    private fun requestAudioPermission() {
+        ActivityCompat.requestPermissions(
+            this, requiredPermissions, REQUEST_RECORD_AUDIO_PERMISSION
+        )
     }
 
     override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Permission allowed to record audio", Toast.LENGTH_SHORT)
-                    .show()
-                this.haPermission = true
-                this.startRecording()
-            } else {
-                Toast.makeText(this, "Permission denied to record audio", Toast.LENGTH_SHORT).show()
-                this.haPermission = false
-            }
-        }
-    }
 
-    override fun onStart() {
-        super.onStart()
-        if (this.haPermission) {
-            this.startRecording()
+        val audioRecordPermissionGranted =
+            requestCode == REQUEST_RECORD_AUDIO_PERMISSION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+
+        hasPermission = if (!audioRecordPermissionGranted) {
+            Toast.makeText(this, "Permission denied to record audio", Toast.LENGTH_SHORT).show()
+            //finish()
+            false
+        } else {
+            Toast.makeText(this, "Permission allowed to record audio", Toast.LENGTH_SHORT).show()
+            true
+            //startRecording()
         }
     }
 
     private fun startRecording() {
-        mediaRecorder = MediaRecorder()
-        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
-        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-        mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-        mediaRecorder.setOutputFile("/dev/null")
-        mediaRecorder.prepare()
-        mediaRecorder.start()
-        updateDecibelTextView()
-
+        recorder = MediaRecorder().apply {
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+            setOutputFile(recordingFilePath)
+            prepare()
+        }
+        recorder?.start()
+        updateDecibelTextView(calculateDec())
     }
 
-    private fun updateDecibelTextView() {
-        val amplitude = mediaRecorder.maxAmplitude.toDouble()
-        //val db = 20 * kotlin.math.log10(amplitude / referencia) - 94
-        val db = 10 * kotlin.math.log10(amplitude / 10.0.pow(-12))
-        val decibelText = String.format("%.1f dB", db)
+    private fun updateDecibelTextView(db: Double) {
         val textView = findViewById<TextView>(R.id.textViewDecibel) as TextView
+        var decibelText = String.format("%.1f dB", db)
         textView.text = decibelText
-        Handler().postDelayed({ updateDecibelTextView() }, 1000)
+        if (isRecording) {
+            Handler().postDelayed({ updateDecibelTextView(calculateDec()) }, 200)
+        }
+    }
+
+    private fun calculateDec(): Double {
+        val amplitude = recorder?.maxAmplitude?.toDouble()
+        if (amplitude != null && amplitude > 0)
+            return 20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
+        return 0.0
+    }
+
+    private fun stopRecording() {
+        recorder?.run {
+            stop()
+            release()
+        }
+        recorder = null
     }
 }
