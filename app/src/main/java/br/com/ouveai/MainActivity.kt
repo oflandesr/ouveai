@@ -5,6 +5,7 @@ import android.media.MediaRecorder
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -96,9 +97,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateDecibelTextView(db: Double) {
         val textView = findViewById<TextView>(R.id.textViewDecibel) as TextView
         var decibelText = String.format("%.1f dB", db)
+//        var decibelText = String.format("%.1f dB", db)
         textView.text = decibelText
         if (isRecording) {
             Handler().postDelayed({ updateDecibelTextView(calculateDec()) }, 200)
+            Handler().postDelayed({ notification(calculateDec(),60.0) }, 200)
         }
     }
 
@@ -115,5 +118,17 @@ class MainActivity : AppCompatActivity() {
             release()
         }
         recorder = null
+    }
+
+    private fun notification(db: Double, reference: Double) {
+
+        val textView = findViewById<TextView>(R.id.textViewNotification) as TextView
+
+        if (db > reference) {
+            textView.setVisibility(View.VISIBLE)
+        }
+        else{
+            textView.setVisibility(View.INVISIBLE)
+        }
     }
 }
