@@ -12,7 +12,7 @@
         android:layout_height="80dp"
         android:background="@color/red"
         android:gravity="center"
-        android:text="Este som pode ser prejudicial à sua audição"
+        android:text="Os ruídos desse ambiente podem ser prejudiciais à sua audição"
         android:textColor="@color/white"
         android:textSize="20sp"
         android:visibility="invisible"

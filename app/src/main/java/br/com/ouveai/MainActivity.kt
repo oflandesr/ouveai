@@ -19,6 +19,7 @@ class MainActivity : AppCompatActivity() {
 
     private var recorder: MediaRecorder? = null
     private val dbValRef = 2e-5
+    private val dbLimit: Double = 65.0
     private var isRecording = false
 
     companion object {
@@ -97,11 +98,11 @@ class MainActivity : AppCompatActivity() {
     private fun updateDecibelTextView(db: Double) {
         val textView = findViewById<TextView>(R.id.textViewDecibel) as TextView
         var decibelText = String.format("%.1f dB", db)
-//        var decibelText = String.format("%.1f dB", db)
+        var dec = calculateDec()
         textView.text = decibelText
         if (isRecording) {
-            Handler().postDelayed({ updateDecibelTextView(calculateDec()) }, 200)
-            Handler().postDelayed({ notification(calculateDec(),60.0) }, 200)
+            Handler().postDelayed({ notification(dec,dbLimit) }, 1000)
+            Handler().postDelayed({ updateDecibelTextView(dec) }, 1000)
         }
     }
 
@@ -122,13 +123,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun notification(db: Double, reference: Double) {
 
-        val textView = findViewById<TextView>(R.id.textViewNotification) as TextView
+        val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
 
         if (db > reference) {
-            textView.setVisibility(View.VISIBLE)
+            notificationText.setVisibility(View.VISIBLE)
         }
         else{
-            textView.setVisibility(View.INVISIBLE)
+            notificationText.setVisibility(View.INVISIBLE)
         }
     }
 }
