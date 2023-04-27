@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "567912486698",
+    "project_id": "ouveai-90244",
+    "storage_bucket": "ouveai-90244.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:567912486698:android:ee1471b63991359d167053",
+        "android_client_info": {
+          "package_name": "br.com.ouveai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "567912486698-7762bk3bus5tagdou3ph93ii4hprsngh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJOfTEv05iD96RhihxAUGm1_txNns9ckI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "567912486698-7762bk3bus5tagdou3ph93ii4hprsngh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

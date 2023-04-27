@@ -1,15 +1,25 @@
 package br.com.ouveai
 
+import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
+import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
+import java.lang.Exception
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 
 class MainActivity : AppCompatActivity() {
@@ -22,6 +32,36 @@ class MainActivity : AppCompatActivity() {
     private val dbLimit: Double = 65.0
     private var isRecording = false
 
+    private fun prepareSOSButton(){
+        val button = findViewById<Button>(R.id.sosButton)
+
+        button.setOnClickListener{
+            Toast.makeText(this, "Um alerta foi enviado!", Toast.LENGTH_SHORT).show()
+
+            val fireStoreDatabase = FirebaseFirestore.getInstance()
+
+            // create a dummy data
+            val hashMap = hashMapOf<String, Any>(
+                "name" to "John doe",
+                "city" to "Nairobi",
+                "age" to 24
+            )
+
+            // use the add() method to create a document inside users collection
+            fireStoreDatabase.collection("users")
+                .add(hashMap)
+                .addOnSuccessListener {
+                    Log.d(TAG, "Added document with ID ${it.id}")
+                }
+                .addOnFailureListener { exception ->
+                    Log.w(TAG, "Error adding document $exception")
+                }
+            Toast.makeText(this, "Dado enviado!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
+
     companion object {
         const val REQUEST_RECORD_AUDIO_PERMISSION = 201
     }
@@ -30,11 +70,13 @@ class MainActivity : AppCompatActivity() {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         requestAudioPermission()
         prepareRecButton()
+        prepareSOSButton()
     }
 
     private fun prepareRecButton() {
@@ -126,10 +168,10 @@ class MainActivity : AppCompatActivity() {
         val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
 
         if (db > reference) {
-            notificationText.setVisibility(View.VISIBLE)
+            notificationText.visibility = View.VISIBLE
         }
         else{
-            notificationText.setVisibility(View.INVISIBLE)
+            notificationText.visibility = View.INVISIBLE
         }
     }
 }
