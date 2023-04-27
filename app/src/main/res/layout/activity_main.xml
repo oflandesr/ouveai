@@ -4,6 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/primary"
     tools:context=".MainActivity">
 
     <TextView
@@ -23,29 +24,68 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.164" />
 
+
     <TextView
         android:id="@+id/textViewDecibel"
         android:layout_width="285dp"
         android:layout_height="114dp"
         android:text="0 dB"
         android:textAlignment="center"
+        android:textColor="@color/white"
         android:textSize="80sp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.4" />
+        app:layout_constraintVertical_bias="0.447" />
 
     <Button
         android:id="@+id/buttonRec"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Iniciar"
+        android:textColor="@color/white"
+        app:backgroundTint="@color/secondary"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.498"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/textViewDecibel"
         app:layout_constraintVertical_bias="0.291" />
+
+<!--    <TextView-->
+<!--        android:id="@+id/soundBar"-->
+<!--        android:layout_width="347dp"-->
+<!--        android:layout_height="53dp"-->
+<!--        android:background="@drawable/sound_bar"-->
+<!--        android:gravity="center"-->
+<!--        android:textColor="@color/white"-->
+<!--        android:textSize="20sp"-->
+<!--        app:layout_constraintBottom_toBottomOf="parent"-->
+<!--        app:layout_constraintEnd_toEndOf="parent"-->
+<!--        app:layout_constraintStart_toStartOf="parent"-->
+<!--        app:layout_constraintTop_toTopOf="parent"-->
+<!--        app:layout_constraintVertical_bias="0.308" />-->
+
+<!--    <ImageView-->
+<!--        android:id="@+id/soundBarIcon"-->
+<!--        android:layout_width="34dp"-->
+<!--        android:layout_height="36dp"-->
+<!--        android:layout_marginStart="60dp"-->
+<!--        android:src="@drawable/sound"-->
+<!--        app:layout_constraintStart_toStartOf="parent"-->
+<!--        tools:layout_editor_absoluteY="218dp" />-->
+
+<!--    <ImageView-->
+<!--        android:id="@+id/imageView"-->
+<!--        android:layout_width="42dp"-->
+<!--        android:layout_height="38dp"-->
+<!--        android:textAlignment="center"-->
+<!--        app:layout_constraintCircleRadius="100dp"-->
+<!--        app:srcCompat="@mipmap/ic_launcher"-->
+<!--        tools:layout_editor_absoluteX="184dp"-->
+<!--        tools:layout_editor_absoluteY="16dp"-->
+<!--        tools:ignore="MissingConstraints" />-->
+
 
 </androidx.constraintlayout.widget.ConstraintLayout>
