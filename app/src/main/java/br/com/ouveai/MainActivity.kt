@@ -20,6 +20,7 @@ import com.google.firebase.ktx.Firebase
 import java.lang.Exception
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.concurrent.thread
 
 
 class MainActivity : AppCompatActivity() {
@@ -31,36 +32,6 @@ class MainActivity : AppCompatActivity() {
     private val dbValRef = 2e-5
     private val dbLimit: Double = 65.0
     private var isRecording = false
-
-    private fun prepareSOSButton(){
-        val button = findViewById<Button>(R.id.sosButton)
-
-        button.setOnClickListener{
-            Toast.makeText(this, "Um alerta foi enviado!", Toast.LENGTH_SHORT).show()
-
-            val fireStoreDatabase = FirebaseFirestore.getInstance()
-
-            // create a dummy data
-            val hashMap = hashMapOf<String, Any>(
-                "name" to "John doe",
-                "city" to "Nairobi",
-                "age" to 24
-            )
-
-            // use the add() method to create a document inside users collection
-            fireStoreDatabase.collection("users")
-                .add(hashMap)
-                .addOnSuccessListener {
-                    Log.d(TAG, "Added document with ID ${it.id}")
-                }
-                .addOnFailureListener { exception ->
-                    Log.w(TAG, "Error adding document $exception")
-                }
-            Toast.makeText(this, "Dado enviado!", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-
 
     companion object {
         const val REQUEST_RECORD_AUDIO_PERMISSION = 201
@@ -79,6 +50,7 @@ class MainActivity : AppCompatActivity() {
         prepareSOSButton()
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun prepareRecButton() {
         val button = findViewById<Button>(R.id.buttonRec)
         button.setOnClickListener {
@@ -97,6 +69,14 @@ class MainActivity : AppCompatActivity() {
             } else {
                 requestAudioPermission()
             }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun prepareSOSButton() {
+        val button = findViewById<Button>(R.id.buttonSOS)
+        button.setOnClickListener {
+            sendAlert()
         }
     }
 
@@ -125,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
     private fun startRecording() {
         recorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -134,17 +115,108 @@ class MainActivity : AppCompatActivity() {
             prepare()
         }
         recorder?.start()
+        startNotifier()
         updateDecibelTextView(calculateDec())
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun sendAlert(){
+
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+        val alerta = hashMapOf<String, Any>(
+            "criadoEm" to LocalDateTime.now().format(formatter)
+        )
+
+        val fireStoreDatabase = FirebaseFirestore.getInstance()
+        fireStoreDatabase.collection("alertas")
+            .add(alerta)
+            .addOnSuccessListener {
+                Log.d(TAG, "Added document with ID ${it.id}")
+                Toast.makeText(this, "Alerta de suspeito enviado!", Toast.LENGTH_SHORT).show()
+            }
+            .addOnFailureListener { exception ->
+                Log.w(TAG, "Error adding document $exception")
+            }
+    }
+
+    // Thread que ficara ouvindo os dados e enviando ao banco
+    private var averageMessenger: Thread? = null
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun startNotifier(){
+        this.averageMessenger = thread {
+            val fireStoreDatabase = FirebaseFirestore.getInstance()
+            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            var decibel = 0.0
+            var sum = 0.0
+            var counter = 1
+            var limiter = 5
+
+            // Enquanto a thread nao for interrompida ela ira:
+            // 1 pegar o dado do microfone,
+            // 2 efetuar a soma dos valores coletados a cada 1 segundo, 5 vezes
+            // 3 calcular a media dos valores coletados
+            // 4 enviar o valor calculado para o banco de dados
+            while (!Thread.currentThread().isInterrupted) {
+
+                // Le os dados do mic
+                val amplitude = recorder?.maxAmplitude?.toDouble()
+                if (amplitude != null && amplitude > 0)
+                    decibel = 20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
+
+                sum = sum+decibel
+                // Verifica se ja eh para enviar os dados
+                if(counter == 5){
+                    // Prepara a mensagem com a data de insersao, valor decibel atual e valor decibel medio calculado
+                    val alerta = hashMapOf<String, Any>(
+                        "criadoEm" to LocalDateTime.now().format(formatter),
+                        "dbAtual" to decibel,
+                        "dbMedia" to sum/limiter
+                    )
+
+                    // Envia o alerta para o banco
+                    fireStoreDatabase
+                        .collection("media")
+                        .add(alerta)
+                        .addOnSuccessListener {
+                            Log.d(TAG, "Added document with ID ${it.id}")
+                        }
+                        .addOnFailureListener { exception ->
+                            Log.w(TAG, "Error adding document $exception")
+                        }
+
+                    // Reinicia o contador
+                    counter = 1
+
+                    // Reinicia a soma
+                    sum = 0.0
+                }
+
+                // Faco a thread aguardar 1 segundo para somar os valores de decibeis
+                try {
+                    Thread.sleep(1000)
+                }catch (e: Exception){
+                    Thread.currentThread().interrupt()
+                }
+
+                // Incrementa o contador
+                counter++
+            }
+        }
+    }
+
     private fun updateDecibelTextView(db: Double) {
-        val textView = findViewById<TextView>(R.id.textViewDecibel) as TextView
-        var decibelText = String.format("%.1f dB", db)
-        var dec = calculateDec()
-        textView.text = decibelText
+        val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
+        val decibelTextView = findViewById<TextView>(R.id.textViewDecibel) as TextView
+        if (db > this.dbLimit) {
+            notificationText.visibility = View.VISIBLE
+        }
+        else{
+            notificationText.visibility = View.INVISIBLE
+        }
+
+        decibelTextView.text = String.format("%.1f dB", db)
         if (isRecording) {
-            Handler().postDelayed({ notification(dec,dbLimit) }, 1000)
-            Handler().postDelayed({ updateDecibelTextView(dec) }, 1000)
+            Handler().postDelayed({ updateDecibelTextView(calculateDec()) }, 100)
         }
     }
 
@@ -161,17 +233,9 @@ class MainActivity : AppCompatActivity() {
             release()
         }
         recorder = null
-    }
 
-    private fun notification(db: Double, reference: Double) {
-
-        val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
-
-        if (db > reference) {
-            notificationText.visibility = View.VISIBLE
-        }
-        else{
-            notificationText.visibility = View.INVISIBLE
-        }
+        // Encerra a thread que estava ouvindo os dados e enviando
+        averageMessenger?.interrupt() // interrompe a thread
+        averageMessenger?.join()
     }
 }
