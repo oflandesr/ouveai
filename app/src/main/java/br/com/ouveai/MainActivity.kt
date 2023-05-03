@@ -1,23 +1,24 @@
 package br.com.ouveai
 
+import android.Manifest
 import android.content.ContentValues.TAG
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
-import android.os.Build
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
-import androidx.annotation.RequiresApi
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ktx.firestore
-import com.google.firebase.ktx.Firebase
-import java.lang.Exception
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
@@ -25,87 +26,108 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
-    private val requiredPermissions = arrayOf(android.Manifest.permission.RECORD_AUDIO)
-    private var hasPermission: Boolean = false
+    // Inicia a instancia do firebase para insersao na base
+    private val fireStoreDatabase = FirebaseFirestore.getInstance()
 
+    private var hasAudioPermission: Boolean = false
+    private var hasLocationPermission: Boolean = false
+
+    // Thread que ficara ouvindo os dados e enviando ao banco
+    private var averageMessenger: Thread? = null
+    // Objeto que ouve o microfone
     private var recorder: MediaRecorder? = null
     private val dbValRef = 2e-5
     private val dbLimit: Double = 65.0
     private var isRecording = false
 
-    companion object {
-        const val REQUEST_RECORD_AUDIO_PERMISSION = 201
-    }
-
     private val recordingFilePath: String by lazy {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        requestAudioPermission()
+        requestPermissions(arrayOf(
+            android.Manifest.permission.RECORD_AUDIO,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
         prepareRecButton()
         prepareSOSButton()
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun prepareRecButton() {
         val button = findViewById<Button>(R.id.buttonRec)
         button.setOnClickListener {
-            if (hasPermission) {
+            if (hasAudioPermission) {
                 if (!isRecording) {
                     isRecording = true
                     button.text = "Parar"
                     startRecording()
-                    Toast.makeText(this, "Recording started!", Toast.LENGTH_SHORT).show()
                 } else {
                     isRecording = false
                     button.text = "Iniciar"
                     stopRecording()
-                    Toast.makeText(this, "Recording stop!", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                requestAudioPermission()
+                requestPermissions(arrayOf(
+                    android.Manifest.permission.RECORD_AUDIO
+                ))
             }
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun prepareSOSButton() {
         val button = findViewById<Button>(R.id.buttonSOS)
         button.setOnClickListener {
-            sendAlert()
+            if (hasLocationPermission){
+                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                val alert = hashMapOf<String, Any>(
+                    "criadoEm" to LocalDateTime.now().format(formatter)
+                )
+                this.addLatLngAndSendToFirebase(alert, "alerta")
+            }else{
+                // Solicita permissoes de localizacao
+                requestPermissions(arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ))
+            }
         }
     }
 
-    private fun requestAudioPermission() {
+    private fun requestPermissions(permissions: Array<out String>) {
         ActivityCompat.requestPermissions(
-            this, requiredPermissions, REQUEST_RECORD_AUDIO_PERMISSION
+            this, permissions, 1
         )
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        val audioRecordPermissionGranted =
-            requestCode == REQUEST_RECORD_AUDIO_PERMISSION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
-
-        hasPermission = if (!audioRecordPermissionGranted) {
-            Toast.makeText(this, "Permission denied to record audio", Toast.LENGTH_SHORT).show()
-            //finish()
-            false
-        } else {
-            Toast.makeText(this, "Permission allowed to record audio", Toast.LENGTH_SHORT).show()
-            true
-            //startRecording()
+        if (requestCode == 1 && grantResults.isNotEmpty()){
+            // Sempre
+            // 1 - permissao do microfone
+            // 2 - permissoes de localizacao
+            // 3 - permissoes do microfone e de localizacao
+            when (permissions.size) {
+                1 -> {
+                    this.hasAudioPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED
+                }
+                2 -> {
+                    this.hasLocationPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED && grantResults[1] == PackageManager.PERMISSION_GRANTED
+                }
+                3 -> {
+                    this.hasAudioPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED
+                    this.hasLocationPermission = grantResults[1] == PackageManager.PERMISSION_GRANTED && grantResults[2] == PackageManager.PERMISSION_GRANTED
+                }
+            }
+        }else{
+            this.hasAudioPermission = false
+            this.hasLocationPermission = false
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun startRecording() {
         recorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -119,74 +141,49 @@ class MainActivity : AppCompatActivity() {
         updateDecibelTextView(calculateDec())
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun sendAlert(){
-
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        val alerta = hashMapOf<String, Any>(
-            "criadoEm" to LocalDateTime.now().format(formatter)
-        )
-
-        val fireStoreDatabase = FirebaseFirestore.getInstance()
-        fireStoreDatabase.collection("alertas")
-            .add(alerta)
-            .addOnSuccessListener {
-                Log.d(TAG, "Added document with ID ${it.id}")
-                Toast.makeText(this, "Alerta de suspeito enviado!", Toast.LENGTH_SHORT).show()
-            }
-            .addOnFailureListener { exception ->
-                Log.w(TAG, "Error adding document $exception")
-            }
-    }
-
-    // Thread que ficara ouvindo os dados e enviando ao banco
-    private var averageMessenger: Thread? = null
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun startNotifier(){
+    private fun startNotifier() {
         this.averageMessenger = thread {
-            val fireStoreDatabase = FirebaseFirestore.getInstance()
+
             val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             var decibel = 0.0
             var sum = 0.0
             var counter = 1
             var limiter = 5
 
-            // Enquanto a thread nao for interrompida ela ira:
-            // 1 pegar o dado do microfone,
-            // 2 efetuar a soma dos valores coletados a cada 1 segundo, 5 vezes
-            // 3 calcular a media dos valores coletados
-            // 4 enviar o valor calculado para o banco de dados
+            // Cria o Handler para ser executado na thread principal
+            // Ele eh responsavel por aguardar o carregamento da localizacao
+            // e o posterior envio ao firebase.
+            // Este handler foi necessario por conta do calculo da media ter de ser
+            // executado enquanto o valor esta sendo exibido, ou seja, paralelamente
+            val handler = Handler(Looper.getMainLooper())
+
             while (!Thread.currentThread().isInterrupted) {
 
                 // Le os dados do mic
                 val amplitude = recorder?.maxAmplitude?.toDouble()
-                if (amplitude != null && amplitude > 0)
-                    decibel = 20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
+                if (amplitude != null && amplitude > 0) decibel =
+                    20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
 
-                sum = sum+decibel
+                sum += decibel
                 // Verifica se ja eh para enviar os dados
-                if(counter == 5){
-                    // Prepara a mensagem com a data de insersao, valor decibel atual e valor decibel medio calculado
-                    val alerta = hashMapOf<String, Any>(
+                if (counter == 5) {
+
+                    val alert = hashMapOf<String, Any>(
                         "criadoEm" to LocalDateTime.now().format(formatter),
                         "dbAtual" to decibel,
-                        "dbMedia" to sum/limiter
+                        "dbMedia" to sum / limiter
                     )
 
-                    // Envia o alerta para o banco
-                    fireStoreDatabase
-                        .collection("media")
-                        .add(alerta)
-                        .addOnSuccessListener {
-                            Log.d(TAG, "Added document with ID ${it.id}")
-                        }
-                        .addOnFailureListener { exception ->
-                            Log.w(TAG, "Error adding document $exception")
-                        }
+                    // Inicia a funcao que popula o alerta com os dados da localizacao
+                    // e envia ao firebase. Esta eh uma operacao que precisa ser executada
+                    // dentro do handler por conta da necessidade de aguardar o resultado
+                    // da geolocalizacao.
+                    handler.post {
+                        this.addLatLngAndSendToFirebase(alert, "media")
+                    }
 
                     // Reinicia o contador
-                    counter = 1
-
+                    counter = 0
                     // Reinicia a soma
                     sum = 0.0
                 }
@@ -194,7 +191,7 @@ class MainActivity : AppCompatActivity() {
                 // Faco a thread aguardar 1 segundo para somar os valores de decibeis
                 try {
                     Thread.sleep(1000)
-                }catch (e: Exception){
+                } catch (e: Exception) {
                     Thread.currentThread().interrupt()
                 }
 
@@ -204,13 +201,87 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun addLatLngAndSendToFirebase(alert: HashMap<String, Any>, collectionPath: String) {
+
+        // Checa se as permissoes de localizacao foram aceitas
+        // Se nao, solicita.
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            var latLng = hashMapOf<String, Any>(
+                "latitude" to 0.0,
+                "longitude" to 0.0
+            )
+
+            var mLocationCallback: LocationCallback = object : LocationCallback() {
+                override fun onLocationResult(locationResult: LocationResult) {
+
+                    if (locationResult == null) {
+                        return
+                    }
+                    for (location in locationResult.locations) {
+                        if (location != null) {
+                            latLng["latitude"] = location.latitude
+                            latLng["longitude"] = location.longitude
+                            return
+                        }
+                    }
+                }
+            }
+
+            LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(
+                LocationRequest.create(),
+                mLocationCallback,
+                null
+            ).addOnCompleteListener() {
+                Log.d(TAG, "Lat and Long results: $latLng")
+                alert["latLng"] = latLng
+                this.sendToFirebase(alert, collectionPath)
+            }
+        }else{
+            // Solicita as permissoes de localizacao
+            requestPermissions(arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ))
+        }
+    }
+
+    private fun sendToFirebase(alert: HashMap<String, Any>, collectionPath: String) {
+
+        // Cria um formatador para datas
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+        // Adiciono a data atual ao payload
+        alert["criadoEm"] = LocalDateTime.now().format(formatter)
+
+        // Envia o dado para o firebase
+        fireStoreDatabase.collection(collectionPath)
+            .add(alert).addOnSuccessListener {
+
+                // Informa no log que a criacao da informacao no firebase funcionou
+                Log.d(TAG, "Added document with ID ${it.id}")
+                //Toast.makeText(this, "Dado enviado!", Toast.LENGTH_SHORT).show()
+
+            }.addOnFailureListener { exception ->
+
+                // Informa no log que a criacao da informacao no firebase falhou
+                Log.w(TAG, "Error adding document $exception")
+
+            }
+    }
+
     private fun updateDecibelTextView(db: Double) {
         val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
         val decibelTextView = findViewById<TextView>(R.id.textViewDecibel) as TextView
         if (db > this.dbLimit) {
             notificationText.visibility = View.VISIBLE
-        }
-        else{
+        } else {
             notificationText.visibility = View.INVISIBLE
         }
 
@@ -222,8 +293,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun calculateDec(): Double {
         val amplitude = recorder?.maxAmplitude?.toDouble()
-        if (amplitude != null && amplitude > 0)
-            return 20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
+        if (amplitude != null && amplitude > 0) return 20 * kotlin.math.log10(
+            amplitude?.div(
+                dbValRef
+            ) ?: 0.0
+        ) - 94
         return 0.0
     }
 
