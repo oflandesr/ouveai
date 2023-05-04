@@ -29,17 +29,20 @@ class MainActivity : AppCompatActivity() {
     // Inicia a instancia do firebase para insersao na base
     private val fireStoreDatabase = FirebaseFirestore.getInstance()
 
+    // Variavel de controle de permissao de gravacao
     private var hasAudioPermission: Boolean = false
+
+    // Variavel de controle de permissao de localizacao
     private var hasLocationPermission: Boolean = false
 
     // Thread que ficara ouvindo os dados e enviando ao banco
     private var averageMessenger: Thread? = null
-    // Objeto que ouve o microfone
+
+    // Variaveis para leitura de audio e calculo de conversao de decibel
     private var recorder: MediaRecorder? = null
     private val dbValRef = 2e-5
     private val dbLimit: Double = 65.0
     private var isRecording = false
-
     private val recordingFilePath: String by lazy {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
@@ -218,12 +221,17 @@ class MainActivity : AppCompatActivity() {
                 "longitude" to 0.0
             )
 
+            // Funcao callback que aguarda o resultado da geracao da geolocalizacao
             var mLocationCallback: LocationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
-
+                    // Se o resultado da geolocalizacao for nulo significa que
+                    // ela esta desabilitada ou as permissoes nao estao aceitas
                     if (locationResult == null) {
                         return
                     }
+                    // Itera dentro das localizacoes carregadas (pode ser mais de uma por conta
+                    // do dispositivo estar em movimento) e salva a primeira latitude e longitude
+                    // que nao seja nula
                     for (location in locationResult.locations) {
                         if (location != null) {
                             latLng["latitude"] = location.latitude
@@ -234,11 +242,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // Inicia o listner da localizacao do dispositivo informando uma requisicao
+            // localizacao e tratando a resposta no callback anterior informado como parametro
+            // do listner
             LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(
                 LocationRequest.create(),
                 mLocationCallback,
                 null
             ).addOnCompleteListener() {
+                // Ao finalizar o listner logo a latitude e longitude capturados e
+                // chamo a funcao de envio para o firebase
                 Log.d(TAG, "Lat and Long results: $latLng")
                 alert["latLng"] = latLng
                 this.sendToFirebase(alert, collectionPath)
