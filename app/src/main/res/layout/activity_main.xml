@@ -46,7 +46,7 @@
         app:layout_constraintHorizontal_bias="0.498"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/textViewDecibel"
-        app:layout_constraintVertical_bias="0.291" />
+        app:layout_constraintVertical_bias="0.388" />
 
     <Button
         android:id="@+id/buttonSOS"
@@ -58,6 +58,6 @@
         app:layout_constraintHorizontal_bias="0.501"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/buttonRec"
-        app:layout_constraintVertical_bias="0.37" />
+        app:layout_constraintVertical_bias="0.154" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -11,14 +11,16 @@ import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.PolygonOptions
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.maps.android.PolyUtil
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
@@ -47,14 +49,27 @@ class MainActivity : AppCompatActivity() {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
 
+    // Localizaco atual
+    private var currentLocation = LatLng(-22.9177871, -47.1026563);
+
+    // Limitador de localizacao da pucc
+    private var puccCoordinates: List<LatLng> = listOf(
+        LatLng(-22.917995, -47.103686),
+        LatLng(-22.917012, -47.102248),
+        LatLng(-22.917506, -47.101867),
+        LatLng(-22.918509, -47.103267)
+    );
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        requestPermissions(arrayOf(
-            android.Manifest.permission.RECORD_AUDIO,
-            android.Manifest.permission.ACCESS_FINE_LOCATION,
-            android.Manifest.permission.ACCESS_COARSE_LOCATION
-        ))
+        requestPermissions(
+            arrayOf(
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
         prepareRecButton()
         prepareSOSButton()
     }
@@ -73,9 +88,11 @@ class MainActivity : AppCompatActivity() {
                     stopRecording()
                 }
             } else {
-                requestPermissions(arrayOf(
-                    android.Manifest.permission.RECORD_AUDIO
-                ))
+                requestPermissions(
+                    arrayOf(
+                        android.Manifest.permission.RECORD_AUDIO
+                    )
+                )
             }
         }
     }
@@ -83,18 +100,20 @@ class MainActivity : AppCompatActivity() {
     private fun prepareSOSButton() {
         val button = findViewById<Button>(R.id.buttonSOS)
         button.setOnClickListener {
-            if (hasLocationPermission){
+            if (hasLocationPermission) {
                 val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
                 val alert = hashMapOf<String, Any>(
                     "criadoEm" to LocalDateTime.now().format(formatter)
                 )
                 this.addLatLngAndSendToFirebase(alert, "alerta")
-            }else{
+            } else {
                 // Solicita permissoes de localizacao
-                requestPermissions(arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION
-                ))
+                requestPermissions(
+                    arrayOf(
+                        android.Manifest.permission.ACCESS_FINE_LOCATION,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
             }
         }
     }
@@ -105,10 +124,14 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == 1 && grantResults.isNotEmpty()){
+        if (requestCode == 1 && grantResults.isNotEmpty()) {
             // Sempre
             // 1 - permissao do microfone
             // 2 - permissoes de localizacao
@@ -117,15 +140,19 @@ class MainActivity : AppCompatActivity() {
                 1 -> {
                     this.hasAudioPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED
                 }
+
                 2 -> {
-                    this.hasLocationPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED && grantResults[1] == PackageManager.PERMISSION_GRANTED
+                    this.hasLocationPermission =
+                        grantResults[0] == PackageManager.PERMISSION_GRANTED && grantResults[1] == PackageManager.PERMISSION_GRANTED
                 }
+
                 3 -> {
                     this.hasAudioPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED
-                    this.hasLocationPermission = grantResults[1] == PackageManager.PERMISSION_GRANTED && grantResults[2] == PackageManager.PERMISSION_GRANTED
+                    this.hasLocationPermission =
+                        grantResults[1] == PackageManager.PERMISSION_GRANTED && grantResults[2] == PackageManager.PERMISSION_GRANTED
                 }
             }
-        }else{
+        } else {
             this.hasAudioPermission = false
             this.hasLocationPermission = false
         }
@@ -169,18 +196,19 @@ class MainActivity : AppCompatActivity() {
 
                 sum += decibel
                 // Verifica se ja eh para enviar os dados
-                if (counter == 5) {
-
+                if (counter == limiter) {
+                    val average = sum / limiter
                     val alert = hashMapOf<String, Any>(
                         "criadoEm" to LocalDateTime.now().format(formatter),
                         "dbAtual" to decibel,
-                        "dbMedia" to sum / limiter
+                        "dbMedia" to average
                     )
 
                     // Inicia a funcao que popula o alerta com os dados da localizacao
                     // e envia ao firebase. Esta eh uma operacao que precisa ser executada
                     // dentro do handler por conta da necessidade de aguardar o resultado
                     // da geolocalizacao.
+
                     handler.post {
                         this.addLatLngAndSendToFirebase(alert, "media")
                     }
@@ -224,16 +252,19 @@ class MainActivity : AppCompatActivity() {
             // Funcao callback que aguarda o resultado da geracao da geolocalizacao
             var mLocationCallback: LocationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
-                    // Se o resultado da geolocalizacao for nulo significa que
-                    // ela esta desabilitada ou as permissoes nao estao aceitas
-                    if (locationResult == null) {
-                        return
-                    }
                     // Itera dentro das localizacoes carregadas (pode ser mais de uma por conta
                     // do dispositivo estar em movimento) e salva a primeira latitude e longitude
                     // que nao seja nula
+                    // O PolyUtil.containsLocation checa se a atual localizacao do usuario esta
+                    // dentro do limite da puc
                     for (location in locationResult.locations) {
-                        if (location != null) {
+                        if (location != null && PolyUtil.containsLocation(
+                                LatLng(
+                                    location.latitude,
+                                    location.longitude
+                                ), puccCoordinates, false
+                            )
+                        ) {
                             latLng["latitude"] = location.latitude
                             latLng["longitude"] = location.longitude
                             return
@@ -254,14 +285,17 @@ class MainActivity : AppCompatActivity() {
                 // chamo a funcao de envio para o firebase
                 Log.d(TAG, "Lat and Long results: $latLng")
                 alert["latLng"] = latLng
+                while (alert["latitude"] == 0.0 || alert["longitude"] == 0.0) {}
                 this.sendToFirebase(alert, collectionPath)
             }
-        }else{
+        } else {
             // Solicita as permissoes de localizacao
-            requestPermissions(arrayOf(
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION
-            ))
+            requestPermissions(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
