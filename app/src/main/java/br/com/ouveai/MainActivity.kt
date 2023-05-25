@@ -13,12 +13,8 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.PolygonOptions
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.maps.android.PolyUtil
 import java.time.LocalDateTime
@@ -28,19 +24,12 @@ import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
-    // Inicia a instancia do firebase para insersao na base
     private val fireStoreDatabase = FirebaseFirestore.getInstance()
+    private val regionLimiter = mutableListOf<LatLng>()
 
-    // Variavel de controle de permissao de gravacao
     private var hasAudioPermission: Boolean = false
-
-    // Variavel de controle de permissao de localizacao
     private var hasLocationPermission: Boolean = false
-
-    // Thread que ficara ouvindo os dados e enviando ao banco
     private var averageMessenger: Thread? = null
-
-    // Variaveis para leitura de audio e calculo de conversao de decibel
     private var recorder: MediaRecorder? = null
     private val dbValRef = 2e-5
     private val dbLimit: Double = 65.0
@@ -49,16 +38,6 @@ class MainActivity : AppCompatActivity() {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
 
-    // Localizaco atual
-    private var currentLocation = LatLng(-22.9177871, -47.1026563);
-
-    // Limitador de localizacao da pucc
-    private var puccCoordinates: List<LatLng> = listOf(
-        LatLng(-22.917995, -47.103686),
-        LatLng(-22.917012, -47.102248),
-        LatLng(-22.917506, -47.101867),
-        LatLng(-22.918509, -47.103267)
-    );
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,56 +51,7 @@ class MainActivity : AppCompatActivity() {
         )
         prepareRecButton()
         prepareSOSButton()
-    }
-
-    private fun prepareRecButton() {
-        val button = findViewById<Button>(R.id.buttonRec)
-        button.setOnClickListener {
-            if (hasAudioPermission) {
-                if (!isRecording) {
-                    isRecording = true
-                    button.text = "Parar"
-                    startRecording()
-                } else {
-                    isRecording = false
-                    button.text = "Iniciar"
-                    stopRecording()
-                }
-            } else {
-                requestPermissions(
-                    arrayOf(
-                        android.Manifest.permission.RECORD_AUDIO
-                    )
-                )
-            }
-        }
-    }
-
-    private fun prepareSOSButton() {
-        val button = findViewById<Button>(R.id.buttonSOS)
-        button.setOnClickListener {
-            if (hasLocationPermission) {
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-                val alert = hashMapOf<String, Any>(
-                    "criadoEm" to LocalDateTime.now().format(formatter)
-                )
-                this.addLatLngAndSendToFirebase(alert, "alerta")
-            } else {
-                // Solicita permissoes de localizacao
-                requestPermissions(
-                    arrayOf(
-                        android.Manifest.permission.ACCESS_FINE_LOCATION,
-                        android.Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
-                )
-            }
-        }
-    }
-
-    private fun requestPermissions(permissions: Array<out String>) {
-        ActivityCompat.requestPermissions(
-            this, permissions, 1
-        )
+        prepareRegionLimiter()
     }
 
     override fun onRequestPermissionsResult(
@@ -158,6 +88,165 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun prepareRecButton() {
+        val button = findViewById<Button>(R.id.buttonRec)
+        button.setOnClickListener {
+
+            if (hasAudioPermission) {
+                if (!isRecording) {
+                    isRecording = true
+                    button.text = "Parar"
+                    startRecording()
+                } else {
+                    isRecording = false
+                    button.text = "Iniciar"
+                    stopRecording()
+                }
+            } else {
+                requestPermissions(
+                    arrayOf(
+                        android.Manifest.permission.RECORD_AUDIO
+                    )
+                )
+            }
+        }
+    }
+
+    private fun prepareSOSButton() {
+        val button = findViewById<Button>(R.id.buttonSOS)
+        button.setOnClickListener {
+            if (hasLocationPermission) {
+                this.prepareSosAlertAndSend()
+            } else {
+                // Solicita permissoes de localizacao
+                requestPermissions(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        }
+    }
+
+    private fun prepareRegionLimiter() {
+        val query = fireStoreDatabase.collection("regiao")
+        query.get()
+            .addOnSuccessListener { querySnapshot ->
+                if (!querySnapshot.isEmpty) {
+                    for (document in querySnapshot.documents) {
+                        val regionPoints = document.get("pontos") as? List<Map<String, Double>>
+                        regionPoints?.forEach { point ->
+                            val lat = point["latitude"]
+                            val lon = point["longitude"]
+                            if (lat != null && lon != null) {
+                                regionLimiter.add(LatLng(lat, lon))
+                            }
+                        }
+                    }
+                } else {
+                    // Nenhum documento encontrado dentro do raio informado
+                    println("Nenhum resultado encontrado.")
+                }
+            }
+            .addOnFailureListener { exception ->
+                // Trate os erros adequadamente
+                println("Erro ao buscar os dados: ${exception.message}")
+            }
+    }
+
+    private fun prepareAverageAndSend(average: Double) {
+
+        // Checa se as permissoes de localizacao foram aceitas, se nao solicita.
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // Pega ultima localização e envia para o banco
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                // Envia se a localização não é nula e está dentro do limite definido
+                if (location != null && this.isLatLngInLimiter(
+                        LatLng(
+                            location.latitude,
+                            location.longitude
+                        )
+                    )
+                ) {
+                    val createdAt =
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                    val payload = hashMapOf<String, Any>(
+                        "criadoEm" to createdAt,
+                        "media" to average,
+                        "latLng" to hashMapOf<String, Any>(
+                            "latitude" to location.latitude,
+                            "longitude" to location.longitude
+                        )
+                    )
+                    this.sendToFirebase(payload, "media")
+                }
+            }
+
+        } else {
+            // Solicita as permissoes de localizacao
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    private fun prepareSosAlertAndSend() {
+
+        // Checa se as permissoes de localizacao foram aceitas, se nao solicita.
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // Pega ultima localização e envia para o banco
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    val createdAt =
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                    val payload = hashMapOf<String, Any>(
+                        "criadoEm" to createdAt,
+                        "latLng" to hashMapOf<String, Any>(
+                            "latitude" to location.latitude,
+                            "longitude" to location.longitude
+                        )
+                    )
+                    this.sendToFirebase(payload, "media")
+                }
+            }
+
+        } else {
+            // Solicita as permissoes de localizacao
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    private fun requestPermissions(permissions: Array<out String>) {
+        ActivityCompat.requestPermissions(
+            this, permissions, 1
+        )
+    }
+
     private fun startRecording() {
         recorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
@@ -167,50 +256,34 @@ class MainActivity : AppCompatActivity() {
             prepare()
         }
         recorder?.start()
-        startNotifier()
+        startAverageCalc()
         updateDecibelTextView(calculateDec())
     }
 
-    private fun startNotifier() {
+    private fun startAverageCalc() {
         this.averageMessenger = thread {
 
-            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             var decibel = 0.0
             var sum = 0.0
             var counter = 1
-            var limiter = 5
+            val limiter = 5
 
-            // Cria o Handler para ser executado na thread principal
-            // Ele eh responsavel por aguardar o carregamento da localizacao
-            // e o posterior envio ao firebase.
-            // Este handler foi necessario por conta do calculo da media ter de ser
-            // executado enquanto o valor esta sendo exibido, ou seja, paralelamente
             val handler = Handler(Looper.getMainLooper())
-
             while (!Thread.currentThread().isInterrupted) {
 
-                // Le os dados do mic
                 val amplitude = recorder?.maxAmplitude?.toDouble()
-                if (amplitude != null && amplitude > 0) decibel =
-                    20 * kotlin.math.log10(amplitude?.div(dbValRef) ?: 0.0) - 94
+                if (amplitude != null && amplitude > 0) {
+                    decibel =
+                        20 * kotlin.math.log10(amplitude.div(dbValRef)) - 94
+                }
 
                 sum += decibel
                 // Verifica se ja eh para enviar os dados
                 if (counter == limiter) {
                     val average = sum / limiter
-                    val alert = hashMapOf<String, Any>(
-                        "criadoEm" to LocalDateTime.now().format(formatter),
-                        "dbAtual" to decibel,
-                        "dbMedia" to average
-                    )
-
-                    // Inicia a funcao que popula o alerta com os dados da localizacao
-                    // e envia ao firebase. Esta eh uma operacao que precisa ser executada
-                    // dentro do handler por conta da necessidade de aguardar o resultado
-                    // da geolocalizacao.
 
                     handler.post {
-                        this.addLatLngAndSendToFirebase(alert, "media")
+                        this.prepareAverageAndSend(average)
                     }
 
                     // Reinicia o contador
@@ -232,82 +305,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun addLatLngAndSendToFirebase(alert: HashMap<String, Any>, collectionPath: String) {
-
-        // Checa se as permissoes de localizacao foram aceitas
-        // Se nao, solicita.
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            var latLng = hashMapOf<String, Any>(
-                "latitude" to 0.0,
-                "longitude" to 0.0
-            )
-
-            // Funcao callback que aguarda o resultado da geracao da geolocalizacao
-            var mLocationCallback: LocationCallback = object : LocationCallback() {
-                override fun onLocationResult(locationResult: LocationResult) {
-                    // Itera dentro das localizacoes carregadas (pode ser mais de uma por conta
-                    // do dispositivo estar em movimento) e salva a primeira latitude e longitude
-                    // que nao seja nula
-                    // O PolyUtil.containsLocation checa se a atual localizacao do usuario esta
-                    // dentro do limite da puc
-                    for (location in locationResult.locations) {
-                        if (location != null && PolyUtil.containsLocation(
-                                LatLng(
-                                    location.latitude,
-                                    location.longitude
-                                ), puccCoordinates, false
-                            )
-                        ) {
-                            latLng["latitude"] = location.latitude
-                            latLng["longitude"] = location.longitude
-                            return
-                        }
-                    }
-                }
-            }
-
-            // Inicia o listner da localizacao do dispositivo informando uma requisicao
-            // localizacao e tratando a resposta no callback anterior informado como parametro
-            // do listner
-            LocationServices.getFusedLocationProviderClient(this).requestLocationUpdates(
-                LocationRequest.create(),
-                mLocationCallback,
-                null
-            ).addOnCompleteListener() {
-                // Ao finalizar o listner logo a latitude e longitude capturados e
-                // chamo a funcao de envio para o firebase
-                Log.d(TAG, "Lat and Long results: $latLng")
-                alert["latLng"] = latLng
-                while (alert["latitude"] == 0.0 || alert["longitude"] == 0.0) {}
-                this.sendToFirebase(alert, collectionPath)
-            }
-        } else {
-            // Solicita as permissoes de localizacao
-            requestPermissions(
-                arrayOf(
-                    android.Manifest.permission.ACCESS_FINE_LOCATION,
-                    android.Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
-        }
-    }
-
     private fun sendToFirebase(alert: HashMap<String, Any>, collectionPath: String) {
 
-        // Cria um formatador para datas
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-
-        // Adiciono a data atual ao payload
-        alert["criadoEm"] = LocalDateTime.now().format(formatter)
-
-        // Envia o dado para o firebase
         fireStoreDatabase.collection(collectionPath)
             .add(alert).addOnSuccessListener {
 
@@ -321,11 +320,12 @@ class MainActivity : AppCompatActivity() {
                 Log.w(TAG, "Error adding document $exception")
 
             }
+
     }
 
     private fun updateDecibelTextView(db: Double) {
-        val notificationText = findViewById<TextView>(R.id.textViewNotification) as TextView
-        val decibelTextView = findViewById<TextView>(R.id.textViewDecibel) as TextView
+        val notificationText = findViewById<TextView>(R.id.textViewNotification)
+        val decibelTextView = findViewById<TextView>(R.id.textViewDecibel)
         if (db > this.dbLimit) {
             notificationText.visibility = View.VISIBLE
         } else {
@@ -341,11 +341,19 @@ class MainActivity : AppCompatActivity() {
     private fun calculateDec(): Double {
         val amplitude = recorder?.maxAmplitude?.toDouble()
         if (amplitude != null && amplitude > 0) return 20 * kotlin.math.log10(
-            amplitude?.div(
+            amplitude.div(
                 dbValRef
-            ) ?: 0.0
+            )
         ) - 94
         return 0.0
+    }
+
+    private fun isLatLngInLimiter(latLng: LatLng): Boolean {
+        return PolyUtil.containsLocation(
+            LatLng(latLng.latitude, latLng.longitude),
+            regionLimiter,
+            false
+        )
     }
 
     private fun stopRecording() {
