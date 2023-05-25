@@ -181,7 +181,7 @@ class MainActivity : AppCompatActivity() {
                         LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                     val payload = hashMapOf<String, Any>(
                         "criadoEm" to createdAt,
-                        "media" to average,
+                        "dbMedia" to average,
                         "latLng" to hashMapOf<String, Any>(
                             "latitude" to location.latitude,
                             "longitude" to location.longitude
