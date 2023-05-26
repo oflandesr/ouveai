@@ -290,7 +290,7 @@ class MainActivity : AppCompatActivity() {
                     val average = sum / limiter
 
                     handler.post {
-                        if (this.isLatLngInLimiter(currentLocation)) {
+                        if (this.currentLocation != null) {
                             this.prepareAverageAndSend(average)
                         }
                     }
