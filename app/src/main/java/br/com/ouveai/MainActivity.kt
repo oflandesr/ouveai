@@ -11,8 +11,13 @@ import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.firestore.FirebaseFirestore
@@ -20,7 +25,6 @@ import com.google.maps.android.PolyUtil
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.concurrent.thread
-
 
 class MainActivity : AppCompatActivity() {
 
@@ -38,9 +42,28 @@ class MainActivity : AppCompatActivity() {
         "${externalCacheDir?.absolutePath}/recording.3gp"
     }
 
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    private val locationRequest = LocationRequest.create().apply {
+        interval = 5000 // intervalo em milissegundos para receber atualizações de localização
+        fastestInterval = 2000 // intervalo mais rápido em milissegundos
+        priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+    }
+
+    private lateinit var currentLocation: LatLng
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(locationResult: LocationResult?) {
+            locationResult ?: return
+            for (location in locationResult.locations) {
+                currentLocation = LatLng(location.latitude, location.longitude)
+                exibe(currentLocation)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         setContentView(R.layout.activity_main)
         requestPermissions(
             arrayOf(
@@ -49,6 +72,7 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.ACCESS_COARSE_LOCATION
             )
         )
+        prepareOnListenerLocation()
         prepareRecButton()
         prepareSOSButton()
         prepareRegionLimiter()
@@ -155,8 +179,11 @@ class MainActivity : AppCompatActivity() {
             }
     }
 
-    private fun prepareAverageAndSend(average: Double) {
+    private fun exibe(latLng: LatLng) {
+        Toast.makeText(this, "${latLng.latitude} ${latLng.longitude}", Toast.LENGTH_SHORT).show()
+    }
 
+    private fun prepareOnListenerLocation() {
         // Checa se as permissoes de localizacao foram aceitas, se nao solicita.
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -166,29 +193,13 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            // Pega ultima localização e envia para o banco
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                // Envia se a localização não é nula e está dentro do limite definido
-                if (location != null && this.isLatLngInLimiter(
-                        LatLng(
-                            location.latitude,
-                            location.longitude
-                        )
-                    )
-                ) {
-                    val createdAt =
-                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                    val payload = hashMapOf<String, Any>(
-                        "criadoEm" to createdAt,
-                        "dbMedia" to average,
-                        "latLng" to hashMapOf<String, Any>(
-                            "latitude" to location.latitude,
-                            "longitude" to location.longitude
-                        )
-                    )
-                    this.sendToFirebase(payload, "media")
-                }
+
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                null /* Looper */
+            ).addOnSuccessListener {
+                Toast.makeText(this, "Localizacao pronta", Toast.LENGTH_SHORT).show()
             }
 
         } else {
@@ -202,43 +213,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun prepareSosAlertAndSend() {
-
-        // Checa se as permissoes de localizacao foram aceitas, se nao solicita.
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            // Pega ultima localização e envia para o banco
-            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) {
-                    val createdAt =
-                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                    val payload = hashMapOf<String, Any>(
-                        "criadoEm" to createdAt,
-                        "latLng" to hashMapOf<String, Any>(
-                            "latitude" to location.latitude,
-                            "longitude" to location.longitude
-                        )
-                    )
-                    this.sendToFirebase(payload, "media")
-                }
-            }
-
-        } else {
-            // Solicita as permissoes de localizacao
-            requestPermissions(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
+    private fun prepareAverageAndSend(average: Double) {
+        //if (isLatLngInLimiter(currentLocation)) {
+        val createdAt =
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        val payload = hashMapOf<String, Any>(
+            "criadoEm" to createdAt,
+            "dbMedia" to average,
+            "latLng" to hashMapOf<String, Any>(
+                "latitude" to currentLocation.latitude,
+                "longitude" to currentLocation.longitude
             )
-        }
+        )
+        this.sendToFirebase(payload, "media")
+        //} else {
+        //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
+        //}
+    }
+
+    private fun prepareSosAlertAndSend() {
+        //if (isLatLngInLimiter(currentLocation)) {
+        val createdAt =
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        val payload = hashMapOf<String, Any>(
+            "criadoEm" to createdAt,
+            "latLng" to hashMapOf<String, Any>(
+                "latitude" to currentLocation.latitude,
+                "longitude" to currentLocation.longitude
+            )
+        )
+        this.sendToFirebase(payload, "alerta")
+        //} else {
+        //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
+        //}
     }
 
     private fun requestPermissions(permissions: Array<out String>) {
@@ -283,7 +290,9 @@ class MainActivity : AppCompatActivity() {
                     val average = sum / limiter
 
                     handler.post {
-                        this.prepareAverageAndSend(average)
+                        if (this.isLatLngInLimiter(currentLocation)) {
+                            this.prepareAverageAndSend(average)
+                        }
                     }
 
                     // Reinicia o contador
