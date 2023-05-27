@@ -20,6 +20,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.LatLng
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.maps.android.PolyUtil
@@ -187,9 +188,7 @@ class MainActivity : AppCompatActivity() {
                 locationRequest,
                 locationCallback,
                 null /* Looper */
-            ).addOnSuccessListener {
-                Toast.makeText(this, "Localizacao pronta", Toast.LENGTH_SHORT).show()
-            }
+            )
 
         } else {
             // Solicita as permissoes de localizacao
@@ -204,10 +203,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun prepareAverageAndSend(average: Double) {
         //if (isLatLngInLimiter(currentLocation)) {
-        val createdAt =
-            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         val payload = hashMapOf<String, Any>(
-            "criadoEm" to createdAt,
+            "criadoEm" to Timestamp.now(),
             "dbMedia" to average,
             "latLng" to GeoPoint(
                 currentLocation.latitude,
@@ -222,16 +219,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun prepareSosAlertAndSend() {
         //if (isLatLngInLimiter(currentLocation)) {
-        val createdAt =
-            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         val payload = hashMapOf<String, Any>(
-            "criadoEm" to createdAt,
+            "criadoEm" to Timestamp.now(),
             "latLng" to GeoPoint(
                 currentLocation.latitude,
                 currentLocation.longitude
             )
         )
         this.sendToFirebase(payload, "AlertaCapturado")
+        Toast.makeText(this, "Enviado!", Toast.LENGTH_SHORT).show()
         //} else {
         //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
         //}
