@@ -21,6 +21,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.LatLng
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.GeoPoint
 import com.google.maps.android.PolyUtil
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -43,20 +44,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-
+    private lateinit var currentLocation: LatLng
     private val locationRequest = LocationRequest.create().apply {
-        interval = 5000 // intervalo em milissegundos para receber atualizações de localização
-        fastestInterval = 2000 // intervalo mais rápido em milissegundos
+        interval = 800
+        fastestInterval = 500
         priority = LocationRequest.PRIORITY_HIGH_ACCURACY
     }
-
-    private lateinit var currentLocation: LatLng
     private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(locationResult: LocationResult?) {
-            locationResult ?: return
+        override fun onLocationResult(locationResult: LocationResult) {
             for (location in locationResult.locations) {
                 currentLocation = LatLng(location.latitude, location.longitude)
-                exibe(currentLocation)
             }
         }
     }
@@ -129,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 requestPermissions(
                     arrayOf(
-                        android.Manifest.permission.RECORD_AUDIO
+                        Manifest.permission.RECORD_AUDIO
                     )
                 )
             }
@@ -154,33 +151,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun prepareRegionLimiter() {
-        val query = fireStoreDatabase.collection("regiao")
+        val query = fireStoreDatabase.collection("RegiaoLimite")
         query.get()
             .addOnSuccessListener { querySnapshot ->
                 if (!querySnapshot.isEmpty) {
                     for (document in querySnapshot.documents) {
-                        val regionPoints = document.get("pontos") as? List<Map<String, Double>>
-                        regionPoints?.forEach { point ->
-                            val lat = point["latitude"]
-                            val lon = point["longitude"]
-                            if (lat != null && lon != null) {
-                                regionLimiter.add(LatLng(lat, lon))
-                            }
+                        val limiter = document.get("limite") as List<GeoPoint>
+                        limiter.forEach { limit ->
+                            regionLimiter.add(LatLng(limit.latitude, limit.longitude))
                         }
                     }
                 } else {
                     // Nenhum documento encontrado dentro do raio informado
-                    println("Nenhum resultado encontrado.")
+                    println("Nenhum limite de regiao encontrado.")
                 }
             }
             .addOnFailureListener { exception ->
                 // Trate os erros adequadamente
-                println("Erro ao buscar os dados: ${exception.message}")
+                println("Erro ao buscar os dados de limite de regiao: ${exception.message}")
             }
-    }
-
-    private fun exibe(latLng: LatLng) {
-        Toast.makeText(this, "${latLng.latitude} ${latLng.longitude}", Toast.LENGTH_SHORT).show()
     }
 
     private fun prepareOnListenerLocation() {
@@ -220,12 +209,12 @@ class MainActivity : AppCompatActivity() {
         val payload = hashMapOf<String, Any>(
             "criadoEm" to createdAt,
             "dbMedia" to average,
-            "latLng" to hashMapOf<String, Any>(
-                "latitude" to currentLocation.latitude,
-                "longitude" to currentLocation.longitude
+            "latLng" to GeoPoint(
+                currentLocation.latitude,
+                currentLocation.longitude
             )
         )
-        this.sendToFirebase(payload, "media")
+        this.sendToFirebase(payload, "MediaCapturada")
         //} else {
         //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
         //}
@@ -237,12 +226,12 @@ class MainActivity : AppCompatActivity() {
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         val payload = hashMapOf<String, Any>(
             "criadoEm" to createdAt,
-            "latLng" to hashMapOf<String, Any>(
-                "latitude" to currentLocation.latitude,
-                "longitude" to currentLocation.longitude
+            "latLng" to GeoPoint(
+                currentLocation.latitude,
+                currentLocation.longitude
             )
         )
-        this.sendToFirebase(payload, "alerta")
+        this.sendToFirebase(payload, "AlertaCapturado")
         //} else {
         //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
         //}
