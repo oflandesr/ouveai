@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
 
     private val fireStoreDatabase = FirebaseFirestore.getInstance()
     private val regionLimiter = mutableListOf<LatLng>()
+    private var regionLimiterActivated: Boolean = true
 
     private var hasAudioPermission: Boolean = false
     private var hasLocationPermission: Boolean = false
@@ -113,23 +114,29 @@ class MainActivity : AppCompatActivity() {
     private fun prepareRecButton() {
         val button = findViewById<Button>(R.id.buttonRec)
         button.setOnClickListener {
-
-            if (hasAudioPermission) {
-                if (!isRecording) {
-                    isRecording = true
-                    button.text = "Parar"
-                    startRecording()
-                } else {
-                    isRecording = false
-                    button.text = "Iniciar"
-                    stopRecording()
-                }
-            } else {
-                requestPermissions(
-                    arrayOf(
-                        Manifest.permission.RECORD_AUDIO
-                    )
+            if (this.regionLimiterActivated && this.currentLocation != null && !this.isLatLngInLimiter(
+                    this.currentLocation
                 )
+            ) {
+                Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
+            } else {
+                if (hasAudioPermission) {
+                    if (!isRecording) {
+                        isRecording = true
+                        button.text = "Parar"
+                        startRecording()
+                    } else {
+                        isRecording = false
+                        button.text = "Iniciar"
+                        stopRecording()
+                    }
+                } else {
+                    requestPermissions(
+                        arrayOf(
+                            Manifest.permission.RECORD_AUDIO
+                        )
+                    )
+                }
             }
         }
     }
@@ -152,15 +159,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun prepareRegionLimiter() {
-        val query = fireStoreDatabase.collection("RegiaoLimite")
+        val query = fireStoreDatabase.collection("Configuracoes")
         query.get()
             .addOnSuccessListener { querySnapshot ->
                 if (!querySnapshot.isEmpty) {
                     for (document in querySnapshot.documents) {
-                        val limiter = document.get("limite") as List<GeoPoint>
+                        val limiterActivated = document.getBoolean("regiaoLimite.ativado")
+                        if (limiterActivated != null) {
+                            this.regionLimiterActivated = limiterActivated
+                        }
+                        val limiter = document.get("regiaoLimite.limite") as List<GeoPoint>
                         limiter.forEach { limit ->
                             regionLimiter.add(LatLng(limit.latitude, limit.longitude))
                         }
+                        println("A Limite $regionLimiterActivated ${regionLimiter.size}")
+                        println("B Limite $limiterActivated ${limiter.size}")
+                        break
                     }
                 } else {
                     // Nenhum documento encontrado dentro do raio informado
@@ -202,35 +216,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun prepareAverageAndSend(average: Double) {
-        //if (isLatLngInLimiter(currentLocation)) {
-        val payload = hashMapOf<String, Any>(
-            "criadoEm" to Timestamp.now(),
-            "dbMedia" to average,
-            "latLng" to GeoPoint(
-                currentLocation.latitude,
-                currentLocation.longitude
+        if (isLatLngInLimiter(currentLocation)) {
+            val payload = hashMapOf<String, Any>(
+                "criadoEm" to Timestamp.now(),
+                "dbMedia" to average,
+                "latLng" to GeoPoint(
+                    currentLocation.latitude,
+                    currentLocation.longitude
+                )
             )
-        )
-        this.sendToFirebase(payload, "MediaCapturada")
-        //} else {
-        //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
-        //}
+            this.sendToFirebase(payload, "MediaCapturada")
+        } else {
+            Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun prepareSosAlertAndSend() {
-        //if (isLatLngInLimiter(currentLocation)) {
-        val payload = hashMapOf<String, Any>(
-            "criadoEm" to Timestamp.now(),
-            "latLng" to GeoPoint(
-                currentLocation.latitude,
-                currentLocation.longitude
+        if (isLatLngInLimiter(currentLocation)) {
+            val payload = hashMapOf<String, Any>(
+                "criadoEm" to Timestamp.now(),
+                "latLng" to GeoPoint(
+                    currentLocation.latitude,
+                    currentLocation.longitude
+                )
             )
-        )
-        this.sendToFirebase(payload, "AlertaCapturado")
-        Toast.makeText(this, "Enviado!", Toast.LENGTH_SHORT).show()
-        //} else {
-        //    Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
-        //}
+            this.sendToFirebase(payload, "AlertaCapturado")
+            Toast.makeText(this, "Enviado!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Fora de área!", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun requestPermissions(permissions: Array<out String>) {
@@ -343,6 +357,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isLatLngInLimiter(latLng: LatLng): Boolean {
+        if (!this.regionLimiterActivated) {
+            return true
+        }
         return PolyUtil.containsLocation(
             LatLng(latLng.latitude, latLng.longitude),
             regionLimiter,
